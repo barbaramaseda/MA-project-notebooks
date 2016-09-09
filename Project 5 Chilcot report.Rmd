@@ -1,0 +1,264 @@
+---
+title: "Project 5. The Chilcot report"
+output: html_document
+---
+### *Getting started in text analysis with R*
+
+![](https://s19.postimg.org/81681rq03/chilcot.jpg)
+
+For a first experience with R's capabilities for text analysis we decided to use the Chilcot report to try the functions described in [this tutorial](https://rstudio-pubs-static.s3.amazonaws.com/31867_8236987cf0a8444e962ccd2aec46d9c3.html).
+
+Published on 6 July 2016, the report contains the results of a seven-year investigation into the UK's participation in the war in Iraq.
+
+Its length (over 2.6 million words extending over 12 volumes) represented a problem for government officials, journalists and basically anyone wanting to get an idea of its contents.
+
+*Mirror*'s journalist Mikey Smith wrote a piece titled [*“Nine things shorter than the Chilcot Report into the Iraq War,”*](http://www.mirror.co.uk/news/uk-news/9-things-shorter-chilcot-report-7933479), which is one good way to convey to the public the magnitude of the size of the document.
+
+The *Guardian* also used the occasion to [invite](https://www.theguardian.com/uk-news/2016/jul/06/we-need-your-help-reporting-on-chilcot) readers to contribute their findings to a collective reading of the lengthy document. 
+
+### (1) Collecting the data
+
+The report was published in a dedicated [website](http://www.iraqinquiry.org.uk/the-report), where it is available for download in multiple files.
+
+We used Mozilla's DownthemAll extension to get all the files in a few steps:
+
+![](https://s19.postimg.org/m8vwqf2oz/downthem_all.jpg)
+
+Then we used Apache Tika to convert all the PDFs to text with a single line of commands:
+
+![](https://s19.postimg.org/c03fklen7/apache_tika_conversion.jpg)
+
+We followed the instructions in [this tutorial](http://gijn.org/2016/06/27/a-poor-journalists-text-mining-toolkit/) for the conversion, and for the use of Apache Tika as a good option for fast text data processing.
+
+
+### (2) Importing the data into RStudio
+
+It is very easy to import text files in bulk into R. We assigned the path of the folder and the name of the folder where our multiple text files were located to a variable called `cname`. 
+
+As you may see, the files were located in our desktop, in a folder called `Iraq text`.
+
+Now, for the analysis, we load the library `tm`, which is R's text mining library.
+
+```{r, message=FALSE, warning=FALSE}
+library(tm)
+cname <- file.path("C:/Users/ADMIN/Desktop/Iraq", "Iraq text") 
+# cname   
+
+```
+
+```{r, eval=FALSE, include=TRUE}
+dir(cname)
+```
+![](https://s19.postimg.org/hpjo4wktf/files_text_chilcot.jpg)
+
+*We have included an image of the result of running `dir` in this case in order not to make the display of the 174 document names too long.* 
+
+Now we can use the variable above to create a corpus using the function `Corpus` and indicating the directory where the files are located (our path).
+```{r}
+documents <- Corpus(DirSource(cname))   
+
+```
+
+### (2) Data preparation and cleaning
+
+Standard text cleaning operations (removing spaces, stop words, punctuation, converting the text to lower case, etc.) can be performed in R with a few functions.
+
+We begin removing punctuation marks:
+```{r}
+documents <- tm_map(documents, removePunctuation)
+```
+
+We also need to remove the following symbols:
+```{r}
+for(j in seq(documents)) 
+ {   
+    documents[[j]] <- gsub("â", " ", documents[[j]])
+    documents[[j]] <- gsub("™", " ", documents[[j]])
+    documents[[j]] <- gsub("“", " ", documents[[j]])
+    documents[[j]] <- gsub("˜", " ", documents[[j]])
+    documents[[j]] <- gsub("œ", " ", documents[[j]])
+    documents[[j]] <- gsub("‘", " ", documents[[j]])
+    documents[[j]] <- gsub("€", " ", documents[[j]])
+    } 
+```
+
+Now we can convert the text to lower case.
+
+```{r}
+documents <- tm_map(documents, tolower)   
+```
+
+In a previous version of this notebook, we didn't remove the numbers, thinking of finding interesting figures, but the many references to the years made of numbers like `2009` appear too often in our results when counting words. 
+
+We will eliminate them for the purposes of this exercise:
+
+```{r}
+documents <- tm_map(documents, removeNumbers)
+```
+
+R comes with its own set of English stop words already. In this case, we have also added a few terms that appeared in a previous analysis of this collection.
+
+```{r}
+customizedStopWords <- c(stopwords("english"), "â€˜iraq", "€˜iraq", "â€“", "â€œa", "â€œthe", "s", "€™s")
+
+documents <- tm_map(documents, removeWords, customizedStopWords)
+```
+
+We are not aware of the text containing white spaces, but we can do this clean up as a precaution:
+
+```{r}
+documents <- tm_map(documents, stripWhitespace)  
+```
+
+We are going to use R's stemmer as well, and change the name of the variable so that it is not too long:
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+documents <- tm_map(documents, stemDocument) 
+```
+
+Conversion to PlainTextDocument is another of the tm features in R. Just out of experience with type of object-related problems in NLTK, we are also going to apply this transformation:
+
+```{r}
+documents <- tm_map(documents, PlainTextDocument)
+```
+
+Now that our text is as clean as it can be, we can create the term-document and document term matrices.
+
+Here's the transformation for the first one:
+
+```{r}
+dtm <- DocumentTermMatrix(documents)   
+dtm 
+```
+
+And here's the creation of the term-document matrix:
+```{r}
+tdm <- TermDocumentMatrix(documents)   
+tdm   
+```
+
+### (3) Diving into the data
+
+The first calculation we can make with our matrices is a frequency analysis. The function `colSums` adds our columns for us and finds the mean values in the array:
+
+```{r}
+freq <- colSums(as.matrix(dtm))   
+length(freq) 
+```
+
+Ordering the result can provide the same information in hierarchical order.
+```{r}
+ord <- order(freq) 
+```
+
+Removing sparse terms, another common operation in text mining, can help us reduce the amount of less important terms. Of course this varies from document to document and we could have a closer look at those sparse terms, but in this case, with suck a long document it can proof specially useful.
+
+Let's get an idea of how working with matrices with more or less sparsity can change the analysis.
+
+If we take a look at part of our original document-term matrix, we will find the following:
+
+```{r}
+inspect(dtm[1:5, 1:20])
+```
+
+However, if we remove terms with a frequency of 0.1...
+
+```{r}
+dtms <- removeSparseTerms(dtm, 0.1) 
+
+```
+
+... we will get the following results instead:
+
+```{r}
+inspect(dtms[1:5, 1:20])
+```
+
+In simple terms, the many `0` results that we were getting for terms that probably appeared only once or twice have been replaced in the second matrix for the numbers for terms that are more common in our corpus.
+
+
+We can inspect the terms that are more frequent and the count using `tail` instead of `freq[head(ord)]` because the most repetitions will be at the end of the list:
+
+```{r}
+freq[tail(ord)] 
+```
+
+It is also possible to analyse the frequency of frequencies indicating the number of results we want manipulating the index:
+
+```{r}
+head(table(freq), 20) 
+```
+
+We can do the same frequency analysis we did before with the `colSum` function, using this time the matrix in which we have removed the sparse terms.
+
+```{r}
+freq <- colSums(as.matrix(dtms))   
+
+```
+
+Compare that with this visualisation of the matrix that still includes the sparse terms. We have used sort in this case to get the most frequent results on the top. In this case we want to look at the first 30 terms on the list:
+```{r}
+freq <- sort(colSums(as.matrix(dtm)), decreasing=TRUE)   
+head(freq, 30)
+```
+
+An even simpler way to look at word frequencies is using the `findFreqTerms` function, where lower and upper frequency bounds can be indicated using the parameters `lowfreq` and `highfreq` respectively. In this example we have used the former:
+```{r}
+findFreqTerms(dtm, lowfreq=8000) 
+```
+Putting our numbers in a data frame can be a very good way to look at both frequent terms and frequency counts:
+```{r}
+wf <- data.frame(word=names(freq), freq=freq)   
+head(wf) 
+```
+We can also manipulate the sparsity index (the "sparse" argument of the `removeSparseTerms` function to see more or less results. We have selected 0.15 for this example:
+```{r}
+dtmss <- removeSparseTerms(dtm, 0.15) 
+inspect(dtmss[1:5, 1:20]) 
+```
+### Visual aids for text analysis
+
+Once we have the statistical break down of our text data we can treat it as any other data set and build charts with it.
+
+```{r, message=FALSE, warning=FALSE}
+library(ggplot2)   
+p <- ggplot(subset(wf, freq>12000), aes(word, freq))    
+p <- p + geom_bar(stat="identity")   
+p <- p + theme(axis.text.x=element_text(angle=45, hjust=1))   
+p 
+```
+
+```{r}
+dtmsss <- removeSparseTerms(dtm, 0.02)
+```
+
+Another way to visualise the information in our collection is to use a dendrogram, "a tree diagram to display the groups formed by hierarchical clustering" (Gaston 2012):
+
+```{r, message=FALSE, warning=FALSE}
+library(cluster)   
+d <- dist(t(dtmsss), method="euclidian")   
+fit <- hclust(d=d, method="ward")   
+fit  
+```
+
+Plot
+
+```{r}
+plot(fit, hang=-1)  
+```
+
+### Conclusions
+
+This first approach to text mining in R shows how useful statistical analysis can be to do a preliminary exploration of a big report in a newsroom.
+
+
+### References
+
+- *Basic Text Mining in R*, available at: https://rstudio-pubs-static.s3.amazonaws.com/31867_8236987cf0a8444e962ccd2aec46d9c3.html
+
+- Galili, Tal (2016), *Intro to Text Analysis with R* https://www.r-bloggers.com/intro-to-text-analysis-with-r
+
+- Lindenberg, Friedrich (2016), *A Poor Journalist’s Text-Mining Toolkit*, available at:
+http://gijn.org/2016/06/27/a-poor-journalists-text-mining-toolkit Accessed 20 Aug. 2016
+
+- Sanchez, Gaston (2012) *Visualizing Dendrograms in R*, available at: https://rpubs.com/gaston/dendrograms 
