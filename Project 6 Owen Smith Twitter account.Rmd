@@ -1,0 +1,306 @@
+---
+title: 'Project 6. Owen Smith''s Twitter account: using social media updates as a
+  source of text data'
+output: html_document
+---
+
+The endorsements and media attention received by MP Owen Smith towards the end of August as challenger of Jeremy Corbyn's leadership of the Labour Party made of his Twitter account a good candidate for our purposes of exploring text analysis applied to social media updates.  
+
+The technical issues we encountered to retrieve all the tweets from different accounts (both limitations by date and amount of tweets), and the prospects of Smith becoming a more important political figure in the future also seemed as good reasons to collect this information now.
+
+![](https://s19.postimg.org/acrpm10mb/owen_smith_twitter.jpg)
+
+### Mining the tweets
+
+We start by importing `twitteR`, the library we need to mine the tweets:
+
+```{r, message=FALSE, warning=FALSE}
+library(twitteR)
+```
+In a separate process not described here, we registered with Twitter to get the keys we need to query the Twitter API.
+
+With that information, we assign those keys to the following variables:
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+# This one is hidden. The code in the next chunk illustrates the process
+consumer_key <- "xbFpll8GTYXzHcrOikZWQcvZ1" 
+consumer_secret <- "DLSsFTA6saapbYUfkTUhu6QnbKX9M2zLgSLoSZA52oimklYHzW" 
+access_token <- "2571132636-l3SVhwdATSIUbzowJbo9CXB3rSM5oARYfiM5Sr1"
+access_secret <- "7vDpfanrbvV7eGN1Gbx1ZsB3HR5q5W7XVwLYiSoZJ30gP"
+```
+
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+consumer_key <- "keyA" 
+consumer_secret <- "keyB" 
+access_token <- "keyC"
+access_secret <- "keyD"
+```
+
+
+And then we use those credentials for authentication:
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+setup_twitter_oauth(consumer_key, consumer_secret, access_token, access_secret)
+```
+We create a variable to store the tweets that we are going to collect, using the userTimeline function of the `twitteR` package (Gentry, 2015:22).
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+smith_tweets <- userTimeline("OwenSmith_MP", n = 3200)
+```
+We start by transforming the tweets obtained in the previous step into a data frame:
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+smith_tweets_df <- do.call("rbind", lapply(smith_tweets, as.data.frame))
+```
+
+```{r, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+saveRDS(smith_tweets_df, file="smithTweets.rds")
+```
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+smith_tweets_df <- readRDS("smithTWeets.rds")
+```
+The number of tweets collected did not reach the 3200 limit mentioned in the documentation (Twitter Developers Documentation, 2016). In the case of Smith, we only managed to retrieve 118 tweets covering the period from 7 June 2016 to August 23:
+```{r}
+nrow(smith_tweets_df)
+```
+Let's take a look at the first few rows:
+```{r}
+library("DT")
+datatable(head(smith_tweets_df))
+```
+
+## Data preparation and exploration
+
+### (2) Creating a corpus 
+
+Our main interest in this data frame is the "Text" column that contains the tweets, but the rest of the parameters can provide contextual information, as we will see later.
+
+We start by importing `tm`, R's library for text mining:
+```{r, message=FALSE, warning=FALSE}
+library(tm)
+```
+To create our courpus, we use the `Corpus` function and assign the result of the following formula to the variable `tweetsCorpus`:
+```{r}
+tweetsCorpus <- Corpus(VectorSource(smith_tweets_df$text))
+
+class(tweetsCorpus)
+```
+As the class above shows, we have created a VCorpus, Corpus object, contanining individual documents and metadata.
+
+We can use the fuction `length` to find the number of documents included in the object:
+```{r}
+length(tweetsCorpus)
+```
+### Text data cleaning
+Once we have this kind of object, we can proceed to prepare our text in a way that makes it suitable for the operations we want to perform with it later. 
+
+We transform all the tweets to lower case:
+```{r}
+tweetsCorpus <- tm_map(tweetsCorpus, tolower)
+```
+Remove punctuation marks:
+```{r}
+tweetsCorpus <- tm_map(tweetsCorpus, removePunctuation)
+```
+And remove numbers:
+```{r}
+tweetsCorpus <- tm_map(tweetsCorpus, removeNumbers)
+```
+Another important step in text data cleaning is the removal of stop words, which is very simple using the following method:
+```{r}
+tweetsCorpus <- tm_map(tweetsCorpus, removeWords, stopwords("english"))
+```
+### Finding frequently used terms
+
+Now that we have cleaned the text we are in a better possition to find which ones are used more frequently. To do that in R, it is necessary to create a matrix first.
+
+But before actually running the function to create the matrix, it is necessary to do a small adjustment yet. Apparently, for `tm` 0.6.0 and above it is necessary to convert the corpus to text, because unlike previous versions, this one won't take care of that problem (user1477388, 2012). The fix we used can be found [here](http://stackoverflow.com/questions/24191728/documenttermmatrix-error-on-corpus-argument).
+
+```{r, message=FALSE, warning=FALSE}
+library(quanteda)
+tweetsMatrix <- tm_map(tweetsCorpus, PlainTextDocument)
+tweetsMatrix <- TermDocumentMatrix(tweetsMatrix, control = list(minWordLength = 1))
+```
+Our matrix should be functional now. We can use `inspect` to see its contents.
+
+In the example below, we are requesting to see the first ten rows (words) and the first three columns (documents):
+```{r}
+inspect(tweetsMatrix[1:10, 1:3])
+```
+Now it is possible to use the `findFreqTerms` function in the `tm` package to find words depending on their frequency. For instance, we can start by looking at words that appear at least 10 times in our corpus:
+```{r}
+findFreqTerms(tweetsMatrix, lowfreq=10)
+```
+We are getting "amp" as a frequent result (from "&amp"). A possible fix is to define a personalised set of stopwords and include this term in that vector:
+```{r}
+customizedStopWords <- c(stopwords("english"), "amp")
+
+tweetsCorpus2 <- tm_map(tweetsCorpus, removeWords, customizedStopWords)
+```
+We need to recreate our matrix to update it's contents (that is, exclude the "amp" results). 
+
+We have gone through the hassle of creating a new variable simply to show the process here; in practice it would be simply easier to fix the original formulation and keep using the same variable (instead of `tweetsMatrix2`):
+```{r}
+tweetsMatrix2 <- tm_map(tweetsCorpus2, PlainTextDocument)
+tweetsMatrix2 <- TermDocumentMatrix(tweetsMatrix2, control = list(minWordLength = 1))
+```
+If we run the frequency search again, we'll see that "amp" is gone from our list:
+```{r}
+findFreqTerms(tweetsMatrix2, lowfreq=10)
+```
+As was to be expected, we only got a few results. We can manipulate the `lowfreq` value to find more or less frequent terms. Let's try with 5:
+```{r}
+findFreqTerms(tweetsMatrix2, lowfreq=5)
+```
+### Using word clouds for text visualisation
+
+Even if at the editorial level it is decided that a word cloud may not be an attractive or even accurate way to convey the information to our audience, they may be useful to get a quick idea of the contents of our corpus, and make new calculations based on its results.
+
+There's a library in R that makes it very easy to generate one. We found that manipulating the `scale =` argument is imortant in order to include all the words that we want. In this case, we had to reduce the second argument to 0.05:
+```{r, message=FALSE, warning=FALSE}
+library(wordcloud)
+
+wordsinMatrix <- as.matrix(tweetsMatrix2)
+wordsSorted <- sort(rowSums(wordsinMatrix), decreasing=TRUE)
+wordsDF <- data.frame(word=names(wordsSorted), freq=wordsSorted)
+wordcloud(wordsDF$word, wordsDF$freq, min.freq = 3, scale=c(4,.05))
+
+```
+
+For example, now that we see that "support" is a commonly used word, we would try to get a better idea about the context in which it is used. For that, we use the following function:
+```{r}
+findAssocs(tweetsMatrix, 'support', 0.4)
+```
+### Exploring associations
+
+The function `findAssocs` allows us to find associations in matrices of the type document-term or term-document like ours in this case.
+
+The third argument (0.4) is the correlation limit, defined in the documentation as "a numeric vector for the (inclusive) lower correlation limits of each term in the range from zero to one."
+
+We used trial and error to get a reduced number of results (higher limits rendered no results and lower limits rendered too many).
+
+```{r}
+findAssocs(tweetsMatrix, 'labour', 0.4)
+```
+These results are a good example of how these correlations could lead to questions. It's interesting how "nikibhenry" (most likely a Twitter handle/user) has a higher correlation rate with "Labour".
+
+We could use that as a hint to look closer at that user's interaction with Smith.
+
+To do that, we can search for the string "nikibhenry" using the `grepl` function. We write the following formula to find tweets in the column `text` of our `smith_tweets_df`:
+```{r}
+grepl(".*?nikibhenry .*?", smith_tweets_df$text, ignore.case = TRUE)
+
+```
+In this case we only have a limited number of tweets, and is easy to see that we have only one `TRUE` result in our data frame. But the following operations would make the analysis easier in a larger collection.
+
+First we limit the results to only those that satisfy the condition we are interested in. This returns the index of the row that contains the relevant tweet:
+```{r}
+which(grepl(".*?nikibhenry .*?", smith_tweets_df$text, ignore.case = TRUE))
+```
+And then we can use that index to retrieve the text that we want to look at:
+```{r}
+smith_tweets_df[60, 1]
+```
+The `grepl` function can also be used to find other terms of interest. For instance, let's try to find if Smith has mentioned Jeremy Corbyn in any of his tweets:
+```{r}
+which(grepl(".*?corbyn.*?", smith_tweets_df$text, ignore.case = TRUE))
+```
+Using that index, we can retrieve the tweet:
+```{r}
+smith_tweets_df[76, 1]
+```
+We can also look at the frequency of the words sorted from the higher to the lower value, by simply displaying an interval of as many words as we want to look at (rows) and two columns: word and frequency, all that contained in the data frame that we created before:
+
+```{r}
+wordsDF[1:20,1:2]
+```
+We can also visualise the same information in a chart:
+
+```{r, eval=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+barplot(wordsDF[1:20,]$freq, las = 2, names.arg = wordsDF[1:20,]$word,
+        col ="lightgrey", main ="Most frequent words", axis.lty = 1,
+        ylab = "Word frequencies")
+```
+We could look at other issues, like what did he tweet about Brexit and the referendum. Note how we can add additional terms to the search using the pipe operator:
+```{r}
+interestingTweets <- which(grepl(".*?brexit.*? | .*?referendum.*? | .*?vote.*? | .*?remain.*?" , smith_tweets_df$text, ignore.case = TRUE))
+```
+These three results show that, at least in terms of original tweets, Smith was not very prolific in social media, but this is just an opinion given the lack of a baseline for comparisons. 
+
+A possible option would be to compare the number of tweets about Brexit in Jeremy Corbyn's account.
+
+```{r}
+#interestingTweetsIds <- c(8, 112, 118, 119, 121) indexes are the result of the calculation in the previous chunk
+
+smith_tweets_df$text[interestingTweets]
+
+```
+We could dig more into another term that appears frequntly in the collection: "mattforde".
+```{r}
+which(grepl(".*?mattforde.*?", smith_tweets_df$text, ignore.case = TRUE))
+```
+From the index numbers we can already infer that the sequence 105-108 probably correspond to an exchange of replies after an initial tweet.
+```{r}
+smith_tweets_df[79, 1]
+smith_tweets_df[105:108, 1]
+```
+We checked Twitter to find that this is the account of comedian [Matt Forde](https://twitter.com/mattforde). The long exchange was simple a conversatio about sports.
+
+#### Markers for content exploration
+
+The associations method we saw before can be used to explore topics of interest. For instance, we can ask the collection towards whom are Smith's expressions of gratitude directed: 
+```{r}
+findAssocs(tweetsMatrix, 'thanks', 0.2)
+```
+
+### Metadata for context
+
+The tweet collection obtained contains metadata that could be used to put the information we get in context. 
+
+We have developed an example here that show how to get information about the types of devices used by Smith to post his tweets.
+
+For the analysis we need to load the `tidyr` library:
+```{r, message=FALSE, warning=FALSE}
+library(tidyr)
+```
+
+We filter the column containing the information about the type of device from where the post was originated (statusSource) using the unique function, that will return unique occurances for the sources from which the tweets were posted:
+```{r}
+unique(smith_tweets_df$statusSource)
+```
+Now that we know there are three possible sources (iPad, iPhone, Web client), we can use the names of the sources to do the count:
+```{r}
+typeOfDevice <- 
+  ifelse(grepl("iPhone",smith_tweets_df$statusSource), "iPhone",
+      ifelse(grepl("iPad", smith_tweets_df$statusSource), "iPad",
+        ifelse(grepl("Client", smith_tweets_df$statusSource), "Web Client", 
+            "Other")))
+```
+Now that we have created new tags for these devices we can count them. Table is a function that makes it very easy:
+```{r}
+table(typeOfDevice)
+```
+
+### Conclusions
+
+This is a good example of data exploration that did not produce immediate results, but that could be useful for future refence, or that could serve as point of comparison for a future analysis.
+
+In other words, we did not get a scoop, but we have created a baseline. That means that, for instance, if in the future Smith's Twitter account starts to be jointly or completely managed by a social media manager, we could use this analysis as a point of reference, discover differences, and build a story about the changes.
+
+#### References
+
+- De Queiroz, Gabriela; Robinson, David; Silge, Julia (2016), *Package 'tidytext'*, available at https://cran.r-project.org/web/packages/tidytext/tidytext.pdf
+
+- Feinerer, Ingo (2015), *Introduction to the tm Package. Text mining in R*, available at https://cran.r-project.org/web/packages/tm/vignettes/tm.pdf
+
+- Twitter Developers Documentation (2016), *REST APIs*, avilable at https://dev.twitter.com/rest/public
+- Gentry, Jeff (2015), *TwitteR Package Documentation*, available at https://cran.r-project.org/web/packages/twitteR/twitteR.pdf
+
+- Stack Overflow (2011), Drop data frame columns by name, available at http://stackoverflow.com/questions/4605206/drop-data-frame-columns-by-name
+
+- Drennan, Freddy R (2016), *Can you guess which phone is Trump's and which phone is his media group?*, available at http://fdrennan.net/pages/pages2/trumpTweets.html
+
+- Tidy Text Mining in R http://varianceexplained.org/tidy-text-mining/_book/tidytext.html
+
+- user1477388 (2014), DocumentTermMatrix error on Corpus argument, Stack Overflow, available at http://stackoverflow.com/questions/24191728/documenttermmatrix-error-on-corpus-argument 
+
+- Robinson, David (2016), *Text analysis of Trump's tweets confirms he writes only the (angrier) Android half*, available at http://varianceexplained.org/r/trump-tweets
